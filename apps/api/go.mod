@@ -1,3 +1,3 @@
-module github.com/sebastian031093/tax-assistant-col
+module github.com
 
 go 1.25.0
