@@ -8,50 +8,56 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"tax-assistant-col/internal/config"
 	"time"
-
-	"github.com/internal/config" // Reemplaza "mi-api" por el nombre de tu módulo en go.mod
 )
 
-// Run inicializa y arranca el servidor gestionando el apagado controlado
-func Run(cfg config.Config) {
+func Run(cfg config.Config) error {
 	mux := newRouter()
 
 	httpServer := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      mux,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		IdleTimeout:  15 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           mux,
+		ReadTimeout:       cfg.ReadTimeout,
+		ReadHeaderTimeout: 2 * time.Second,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       15 * time.Second,
 	}
 
-	// 1. Escuchar señales del sistema operativo usando un contexto cancelable
-	// Capturará Ctrl+C (SIGINT) o terminación de la nube (SIGTERM)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 2. Ejecutar ListenAndServe en una goroutine (hilo asíncrono)
-	// Hacemos esto porque ListenAndServe bloquea el flujo principal. Al delegarlo,
-	// permitimos que el código de abajo siga corriendo y espere las señales.
+	// 1. Creamos un canal con buffer para capturar errores del servidor
+	serverErrors := make(chan error, 1)
+
+	// 2. Ejecutar ListenAndServe pasándole los errores al canal
 	go func() {
 		log.Printf("Starting server on port :%s...\n", cfg.Port)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Server failed down: %v", err)
+			serverErrors <- err // Enviamos el error al canal si el servidor falla al arrancar
 		}
 	}()
 
-	// El canal se bloquea aquí hasta que el OS envíe un Ctrl+C o SIGTERM
-	<-ctx.Done()
-	log.Println("Shutting down server gracefully...")
+	// 3. AQUÍ VA TU BLOQUE SELECT: Coordina la espera de eventos
+	select {
+	case <-ctx.Done():
+		// Caso A: Se recibió Ctrl+C o SIGTERM de la nube. Procedemos al apagado controlado.
+		log.Println("Shutting down server gracefully...")
 
-	// 3. Crear una ventana de tiempo límite (timeout) para el apagado seguro
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	case err := <-serverErrors:
+		// Caso B: El servidor falló antes de recibir una señal (ej: puerto duplicado).
+		log.Fatalf("Server failed to start: %v", err)
+	}
+
+	// 4. Ventana de tiempo límite (timeout) para el apagado seguro (solo aplica si entró al Caso A)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout*time.Second)
 	defer cancel()
 
-	// 4. Invocamos Shutdown. Esperará peticiones activas un máximo de 10 segundos.
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
 	log.Println("Server exiting clean and tidy.")
+
+	return <-serverErrors
 }

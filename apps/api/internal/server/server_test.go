@@ -22,13 +22,13 @@ func TestRouter(t *testing.T) {
 	}{
 		{
 			name:         "GET /health exitoso",
-			method:       "GET",
+			method:       http.MethodGet,
 			path:         "/health",
 			wantStatus:   http.StatusOK, // 200
 			validateBody: true,
 			expectedBody: healthResponse{
-				Status:   "ok",
-				Services: "tax-assistant-api",
+				Status:  "ok",
+				Service: "tax-assistant-api",
 			},
 		},
 		{
@@ -91,10 +91,11 @@ func TestRouter(t *testing.T) {
 				}
 
 				// Verificar el campo "service"
-				if actualBody.Services != tc.expectedBody.Services {
-					t.Errorf("Services incorrecto: se esperaba %q, se obtuvo %q", tc.expectedBody.Services, actualBody.Services)
+				if actualBody.Service != tc.expectedBody.Service {
+					t.Errorf("Services incorrecto: se esperaba %q, se obtuvo %q", tc.expectedBody.Service, actualBody.Service)
 				}
 			}
 		})
+		t.Setenv("PORT", "9090")
 	}
 }
