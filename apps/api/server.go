@@ -36,7 +36,19 @@ func newRouter() *http.ServeMux {
 	mux := http.NewServeMux()
 	// Global / catch-all route (plain text)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "Hello from, HTTP")
+
+		if r.URL.Path == "/" {
+			fmt.Fprintln(w, "Hello from, HTTP")
+		}
+		// Si el path NO es "/", significa que es una ruta no registrada (ej: /unknown)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound) // 404
+
+		// Respondemos con un JSON personalizado de error
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "not_found",
+			"message": "La ruta solicitada no existe.",
+		})
 	})
 	// GET routing: Using "GET " prefix strictly limits this path to GET requests
 	mux.HandleFunc("GET /health", healthHandler)
