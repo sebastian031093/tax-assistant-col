@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"encoding/json"
@@ -8,38 +8,38 @@ import (
 )
 
 func TestRouter(t *testing.T) {
-	// 1. Inicializamos el router real de la aplicación para probar el enrutamiento completo
+	// 1. Inicializamos el router interno real de la aplicación
 	router := newRouter()
 
 	// 2. Definición de la tabla de pruebas (Table-Driven Test)
 	tests := []struct {
-		name         string         // Nombre descriptivo del caso de uso
+		name         string         // Nombre descriptivo del caso
 		method       string         // Método HTTP a simular
-		path         string         // Ruta a la que apuntará la petición
+		path         string         // Ruta de la petición
 		wantStatus   int            // Código de estado HTTP esperado
-		validateBody bool           // Bandera para saber si este caso debe validar el JSON
-		expectedBody healthResponse // Estructura esperada en caso de validar el JSON
+		validateBody bool           // Bandera para validar el JSON de respuesta
+		expectedBody healthResponse // Estructura JSON esperada en /health
 	}{
 		{
 			name:         "GET /health exitoso",
-			method:       "GET",
+			method:       http.MethodGet,
 			path:         "/health",
 			wantStatus:   http.StatusOK, // 200
 			validateBody: true,
 			expectedBody: healthResponse{
-				Status:   "ok",
-				Services: "tax-assistant-api",
+				Status:  "ok",
+				Service: "tax-assistant-api",
 			},
 		},
 		{
-			name:         "POST /health no permitido",
+			name:         "POST /health método no permitido",
 			method:       "POST",
 			path:         "/health",
-			wantStatus:   http.StatusMethodNotAllowed, // 405 debido al prefijo "GET " en el mux
+			wantStatus:   http.StatusMethodNotAllowed, // 405 (Mux nativo maneja el prefijo "GET ")
 			validateBody: false,
 		},
 		{
-			name:         "GET /unknown ruta inexistente",
+			name:         "GET /unknown ruta inexistente capturada por el 404 global",
 			method:       "GET",
 			path:         "/unknown",
 			wantStatus:   http.StatusNotFound, // 404
@@ -49,10 +49,10 @@ func TestRouter(t *testing.T) {
 
 	// 3. Iteración sobre cada caso de la tabla
 	for _, tc := range tests {
-		// t.Run nos permite ejecutar sub-pruebas aisladas y reportar fallos específicos por nombre
+		// Ejecutamos cada caso como una sub-prueba independiente
 		t.Run(tc.name, func(t *testing.T) {
 
-			// Crear la petición HTTP falsa basada en los datos del caso actual
+			// Crear la petición HTTP falsa basada en el caso actual
 			req, err := http.NewRequest(tc.method, tc.path, nil)
 			if err != nil {
 				t.Fatalf("No se pudo crear la petición: %v", err)
@@ -61,16 +61,16 @@ func TestRouter(t *testing.T) {
 			// Crear el ResponseRecorder para capturar la respuesta en memoria
 			rr := httptest.NewRecorder()
 
-			// IMPORTANTE: En lugar de llamar al handler directamente, le pasamos la petición
-			// al router mediante ServeHTTP. Esto simula el ciclo de vida real del servidor.
+			// Enviamos la petición a través del método ServeHTTP del router real
+			// Esto valida el enrutamiento completo y las restricciones de verbos HTTP
 			router.ServeHTTP(rr, req)
 
-			// Validar el código de estado HTTP obtenido contra el esperado
+			// Validar el código de estado obtenido
 			if rr.Code != tc.wantStatus {
 				t.Errorf("Código de estado incorrecto: se esperaba %d, se obtuvo %d", tc.wantStatus, rr.Code)
 			}
 
-			// Validar el cuerpo y las cabeceras JSON solo si el caso de prueba lo requiere
+			// Validar el contenido del JSON si el caso lo requiere
 			if tc.validateBody {
 				// Validar que el Header Content-Type sea application/json
 				expectedContentType := "application/json"
@@ -78,23 +78,24 @@ func TestRouter(t *testing.T) {
 					t.Errorf("Content-Type incorrecto: se esperaba %q, se obtuvo %q", expectedContentType, actual)
 				}
 
-				// Decodificar el JSON de respuesta
+				// Decodificar el cuerpo de la respuesta
 				var actualBody healthResponse
 				err = json.NewDecoder(rr.Body).Decode(&actualBody)
 				if err != nil {
 					t.Fatalf("No se pudo decodificar el JSON de respuesta: %v", err)
 				}
 
-				// Verificar el valor del campo "status"
+				// Verificar el campo "status"
 				if actualBody.Status != tc.expectedBody.Status {
 					t.Errorf("Status incorrecto: se esperaba %q, se obtuvo %q", tc.expectedBody.Status, actualBody.Status)
 				}
 
-				// Verificar el valor del campo "service" (mapeado desde la etiqueta JSON 'service')
-				if actualBody.Services != tc.expectedBody.Services {
-					t.Errorf("Service incorrecto: se esperaba %q, se obtuvo %q", tc.expectedBody.Services, actualBody.Services)
+				// Verificar el campo "service"
+				if actualBody.Service != tc.expectedBody.Service {
+					t.Errorf("Services incorrecto: se esperaba %q, se obtuvo %q", tc.expectedBody.Service, actualBody.Service)
 				}
 			}
 		})
+		t.Setenv("PORT", "9090")
 	}
 }
