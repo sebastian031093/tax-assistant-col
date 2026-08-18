@@ -8,47 +8,50 @@ import (
 	"os/signal"
 	"syscall"
 	"tax-assistant-col/internal/config"
-	"tax-assistant-col/internal/database" // Ajusta según la ruta real de tu paquete
+	"tax-assistant-col/internal/database"
 	"tax-assistant-col/internal/server"
 )
 
 func main() {
-	// Crear el contexto raíz que escucha las señales de apagado del sistema (Ctrl+C, SIGTERM)
+	// main is purely responsible for handling the OS exit code status
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "application failed: %v\n", err)
+		os.Exit(1)
+	}
+	log.Println("Application finished cleanly.")
+}
+
+// run contains the entire bootstrap logic, allowing all defers to execute safely
+func run() error {
+	// Create the root context listening for OS signals (Ctrl+C, SIGTERM)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// 1. Load config
 	cfg := config.Load()
-
-	// Validar que la variable no venga vacía antes de intentar conectar
 	if cfg.DatabaseURL == "" {
-		fmt.Fprintln(os.Stderr, "Error crítico: la variable de entorno DATABASE_URL no está configurada.")
-		os.Exit(1)
+		return fmt.Errorf("the environment variable DATABASE_URL is not configured")
 	}
 
-	// 2 y 3. Create PostgreSQL pool & Verify connection
-	log.Println("Inicializando y verificando conexión con PostgreSQL...")
+	// 2 & 3. Create PostgreSQL pool & Verify connection
+	log.Println("Initializing and verifying connection with PostgreSQL...")
 	pool, err := database.NewPostgresPool(ctx, cfg.DatabaseURL)
 	if err != nil {
-		// Falle con un mensaje claro cuando DATABASE_URL sea incorrecta o el servidor no esté listo
-		fmt.Fprintf(os.Stderr, "Fallo en la inicialización de la infraestructura: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("infrastructure initialization failed: %w", err)
 	}
 
-	// 6. Close pool (Se ejecutará de último de forma segura al apagar la app)
+	// 6. Close pool (Guaranteed to execute when run() returns an error OR exits successfully)
 	defer func() {
-		log.Println("Cerrando el pool de conexiones de PostgreSQL...")
+		log.Println("Closing PostgreSQL connection pool...")
 		pool.Close()
 	}()
 
-	log.Println("Conexión a PostgreSQL verificada exitosamente.")
+	log.Println("PostgreSQL connection verified successfully.")
 
-	// 4 y 5. Inject pool into server & Run server
-	// Nota: Pasamos el 'ctx' de ciclo de vida y el 'pool' al servidor
+	// 4 & 5. Inject pool into server & Run server
 	if err := server.Run(ctx, cfg, pool); err != nil {
-		fmt.Fprintf(os.Stderr, "Error en la ejecución del servidor: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("server execution failed: %w", err)
 	}
 
-	log.Println("Aplicación finalizada correctamente.")
+	return nil
 }
