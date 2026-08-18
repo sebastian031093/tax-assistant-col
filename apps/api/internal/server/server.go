@@ -3,16 +3,19 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"tax-assistant-col/internal/config"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Run(cfg config.Config) error {
+// Run configura, inicia y apaga de forma segura el servidor HTTP.
+// Recibe el contexto raíz de la aplicación y el pool de conexiones inyectado.
+func Run(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+	// TODO: Pasa el 'pool' a tu enrutador cuando vayas a configurar tus handlers/repositorios
 	mux := newRouter()
 
 	httpServer := &http.Server{
@@ -24,40 +27,39 @@ func Run(cfg config.Config) error {
 		IdleTimeout:       15 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	// 1. Creamos un canal con buffer para capturar errores del servidor
+	// 1. Canal con buffer para capturar errores de inicio del servidor HTTP
 	serverErrors := make(chan error, 1)
 
-	// 2. Ejecutar ListenAndServe pasándole los errores al canal
+	// 2. Ejecutar ListenAndServe de forma asíncrona
 	go func() {
 		log.Printf("Starting server on port :%s...\n", cfg.Port)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErrors <- err // Enviamos el error al canal si el servidor falla al arrancar
+			serverErrors <- err
 		}
 	}()
 
-	// 3. AQUÍ VA TU BLOQUE SELECT: Coordina la espera de eventos
+	// 3. Coordinar la espera de eventos usando el contexto inyectado desde main
 	select {
 	case <-ctx.Done():
-		// Caso A: Se recibió Ctrl+C o SIGTERM de la nube. Procedemos al apagado controlado.
+		// Caso A: Se recibió una señal de apagado del sistema (Ctrl+C, SIGTERM) en main.go
 		log.Println("Shutting down server gracefully...")
 
 	case err := <-serverErrors:
-		// Caso B: El servidor falló antes de recibir una señal (ej: puerto duplicado).
-		log.Fatalf("Server failed to start: %v", err)
+		// Caso B: El servidor falló internamente antes de recibir una señal (ej: puerto ocupado)
+		return fmt.Errorf("server failed to start: %w", err)
 	}
 
-	// 4. Ventana de tiempo límite (timeout) para el apagado seguro (solo aplica si entró al Caso A)
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout*time.Second)
+	// 4. Ventana de tiempo límite (timeout) para el apagado seguro del servidor HTTP
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
+	// Intentar apagar el servidor HTTP de forma limpia liberando las conexiones activas
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		return fmt.Errorf("server forced to shutdown: %w", err)
 	}
 
 	log.Println("Server exiting clean and tidy.")
 
-	return <-serverErrors
+	// Si el servidor se cerró de forma normal tras el Shutdown, retornamos nil
+	return nil
 }
