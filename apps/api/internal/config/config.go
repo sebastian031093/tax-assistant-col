@@ -13,6 +13,7 @@ type Config struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
+	DatabaseURL     string
 }
 
 func Load() Config {
