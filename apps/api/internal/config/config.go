@@ -27,10 +27,17 @@ func Load() Config {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
+	shutdownTimeout, err := getEnvAsDuration("SHUTDOWN_TIMEOUT_SECS", 15)
+	if err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
+
 	return Config{
-		Port:         getEnv("PORT", "8080"),
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout,
+		Port:            getEnv("PORT", "8080"),
+		ReadTimeout:     readTimeout,
+		WriteTimeout:    writeTimeout,
+		ShutdownTimeout: shutdownTimeout,
+		DatabaseURL:     getEnv("DATABASE_URL", ""),
 	}
 }
 

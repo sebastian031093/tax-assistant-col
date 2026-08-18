@@ -50,7 +50,7 @@ func Run(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
 	}
 
 	// 4. Ventana de tiempo límite (timeout) para el apagado seguro del servidor HTTP
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
 	// Intentar apagar el servidor HTTP de forma limpia liberando las conexiones activas
